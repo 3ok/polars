@@ -10,6 +10,8 @@ use std::sync::Arc;
 use num_traits::{Bounded, Float, NumCast, One, Zero};
 use polars_utils::float::IsFloat;
 use polars_utils::ord::{compare_fn_nan_max, compare_fn_nan_min};
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 use window::*;
 
 use crate::array::{ArrayRef, PrimitiveArray};
@@ -24,6 +26,35 @@ type Idx = usize;
 type WindowSize = usize;
 type Len = usize;
 pub type DynArgs = Option<Arc<dyn Any + Sync + Send>>;
+
+#[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum RollingFnParams {
+    Quantile(RollingQuantileParams),
+    Var(RollingVarParams),
+}
+
+impl RollingFnParams {
+    pub fn from_dyn_args(dyn_args: &DynArgs) -> Option<Self> {
+        dyn_args.as_ref().and_then(|params| {
+            params
+                .downcast_ref::<RollingQuantileParams>()
+                .map(|params| RollingFnParams::Quantile(*params))
+                .or_else(|| {
+                    params
+                        .downcast_ref::<RollingVarParams>()
+                        .map(|params| RollingFnParams::Var(*params))
+                })
+        })
+    }
+
+    pub fn to_dyn_args(&self) -> DynArgs {
+        match self {
+            RollingFnParams::Quantile(params) => Some(Arc::new(*params)),
+            RollingFnParams::Var(params) => Some(Arc::new(*params)),
+        }
+    }
+}
 
 fn det_offsets(i: Idx, window_size: WindowSize, _len: Len) -> (usize, usize) {
     (i.saturating_sub(window_size - 1), i + 1)
@@ -77,12 +108,14 @@ where
 }
 
 // Parameters allowed for rolling operations.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct RollingVarParams {
     pub ddof: u8,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct RollingQuantileParams {
     pub prob: f64,
     pub interpol: QuantileInterpolOptions,

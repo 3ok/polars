@@ -1,9 +1,8 @@
-use arrow::legacy::prelude::DynArgs;
+use arrow::legacy::prelude::{DynArgs, RollingFnParams};
 #[cfg(feature = "serde")]
-use serde::{Deserialize, Serialize};
+use serde::{ser::SerializeStruct, Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Clone, Debug)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct RollingOptionsFixedWindow {
     /// The length of the window.
     pub window_size: usize,
@@ -14,8 +13,57 @@ pub struct RollingOptionsFixedWindow {
     pub weights: Option<Vec<f64>>,
     /// Set the labels at the center of the window.
     pub center: bool,
-    #[cfg_attr(feature = "serde", serde(skip))]
     pub fn_params: DynArgs,
+}
+
+#[cfg(feature = "serde")]
+impl Serialize for RollingOptionsFixedWindow {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let rolling_fn_params = RollingFnParams::from_dyn_args(&self.fn_params);
+        let mut state = serializer.serialize_struct("RollingOptionsFixedWindow", 5)?;
+
+        state.serialize_field("window_size", &self.window_size)?;
+        state.serialize_field("min_periods", &self.min_periods)?;
+        state.serialize_field("weights", &self.weights)?;
+        state.serialize_field("center", &self.center)?;
+        state.serialize_field("fn_params", &rolling_fn_params)?;
+
+        state.end()
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> Deserialize<'de> for RollingOptionsFixedWindow {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize, Debug)]
+        struct Helper {
+            window_size: usize,
+            min_periods: usize,
+            weights: Option<Vec<f64>>,
+            center: bool,
+            #[serde(default)]
+            fn_params: Option<RollingFnParams>,
+        }
+
+        let helper = Helper::deserialize(deserializer)?;
+        let fn_params = helper
+            .fn_params
+            .as_ref()
+            .and_then(|param| param.to_dyn_args());
+        Ok(RollingOptionsFixedWindow {
+            window_size: helper.window_size,
+            min_periods: helper.min_periods,
+            weights: helper.weights,
+            center: helper.center,
+            fn_params,
+        })
+    }
 }
 
 #[cfg(feature = "rolling_window")]
@@ -25,8 +73,8 @@ impl PartialEq for RollingOptionsFixedWindow {
             && self.min_periods == other.min_periods
             && self.weights == other.weights
             && self.center == other.center
-            && self.fn_params.is_none()
-            && other.fn_params.is_none()
+            && RollingFnParams::from_dyn_args(&self.fn_params)
+                == RollingFnParams::from_dyn_args(&other.fn_params)
     }
 }
 
